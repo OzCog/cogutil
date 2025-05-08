@@ -3,7 +3,7 @@ version: 2.0
 jobs:
   cogutil:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
         environment:
           CCACHE_DIR: /ws/ccache
@@ -44,14 +44,14 @@ jobs:
 
   atomspace:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
         environment:
           PGHOST: opencog-postgres
           PGUSER: opencog_test
           PGPASSWORD: cheese
           CCACHE_DIR: /ws/ccache
-      - image: $CIRCLE_PROJECT_USERNAME/postgres
+      - image: opencog/postgres
         name: opencog-postgres
     working_directory: /ws/atomspace
     steps:
@@ -112,7 +112,7 @@ jobs:
 
   cogserver:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
         environment:
           CCACHE_DIR: /ws/ccache
@@ -159,7 +159,7 @@ jobs:
 
   attention:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
         environment:
           CCACHE_DIR: /ws/ccache
@@ -217,7 +217,7 @@ jobs:
 
   unify:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
         environment:
           CCACHE_DIR: /ws/ccache
@@ -264,7 +264,7 @@ jobs:
 
   ure:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
         environment:
           CCACHE_DIR: /ws/ccache
@@ -314,7 +314,7 @@ jobs:
 
   miner:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
         environment:
           CCACHE_DIR: /ws/ccache
@@ -375,7 +375,7 @@ jobs:
 
   asmoses:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
         environment:
           CCACHE_DIR: /ws/ccache
@@ -424,7 +424,7 @@ jobs:
 
   opencog:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
         environment:
           CCACHE_DIR: /ws/ccache
@@ -498,7 +498,7 @@ jobs:
 
   package:
     docker:
-      - image: $CIRCLE_PROJECT_USERNAME/opencog-deps
+      - image: opencog/opencog-deps
         user: root
     working_directory: /ws/cogutil
     steps:
