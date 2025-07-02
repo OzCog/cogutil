@@ -39,7 +39,7 @@ namespace opencog
 lazy_selector::lazy_selector(unsigned int u, unsigned int l)
     : _u(u), _l(l)
 {
-    OC_ASSERT(u - l > 0, "you cannot select any thing from an empty list");
+    OC_ASSERT(u > l, "you cannot select any thing from an empty list");
 }
 
 bool lazy_selector::empty() const
