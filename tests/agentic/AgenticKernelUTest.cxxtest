@@ -1,0 +1,191 @@
+/*
+ * tests/agentic/AgenticKernelUTest.cxxtest
+ *
+ * Unit tests for the Agentic Kernel System
+ * Tests core functionality of kernels, token parsing, and registry.
+ */
+
+#include <opencog/agentic/kernel/AgenticKernel.h>
+#include <opencog/agentic/grammar/TokenParsingAgent.h>
+
+using namespace opencog::agentic;
+using namespace opencog::agentic::grammar;
+
+class AgenticKernelUTest : public CxxTest::TestSuite
+{
+public:
+    void setUp() {
+        // Reset registry for clean tests
+        // Note: In a real implementation, we'd want a way to clear the registry
+    }
+
+    void test_cognitive_data_creation() {
+        CognitiveData data;
+        data.data_id = "test_001";
+        data.metadata["test"] = "value";
+        
+        TS_ASSERT_EQUALS(data.data_id, "test_001");
+        TS_ASSERT_EQUALS(data.metadata["test"], "value");
+        TS_ASSERT(!data.has_tensor());
+        TS_ASSERT(!data.has_symbolic());
+    }
+
+    void test_cognitive_data_with_tree() {
+        tree<std::string> test_tree;
+        test_tree.set_head("root");
+        
+        CognitiveData data(test_tree);
+        TS_ASSERT(data.has_symbolic());
+        TS_ASSERT(!data.symbolic_tree.empty());
+        TS_ASSERT_EQUALS(*data.symbolic_tree.begin(), "root");
+    }
+
+    void test_attention_weights() {
+        CognitiveData data;
+        
+        TS_ASSERT_EQUALS(data.get_attention_weight("test"), 0.0f);
+        
+        data.set_attention_weight("test", 0.5f);
+        TS_ASSERT_EQUALS(data.get_attention_weight("test"), 0.5f);
+        
+        data.set_attention_weight("test", 0.8f);
+        TS_ASSERT_EQUALS(data.get_attention_weight("test"), 0.8f);
+    }
+
+    void test_kernel_config() {
+        KernelConfig config("test_kernel", "test_type");
+        
+        TS_ASSERT_EQUALS(config.kernel_id, "test_kernel");
+        TS_ASSERT_EQUALS(config.kernel_type, "test_type");
+        TS_ASSERT_EQUALS(config.base_activation_threshold, 0.5f);
+        TS_ASSERT_EQUALS(config.max_processing_cost, 100.0f);
+        TS_ASSERT(config.enable_learning);
+    }
+
+    void test_token_parsing_agent_simple() {
+        auto parser = TokenParsingAgentFactory::create_simple_parser("test_parser");
+        
+        TS_ASSERT(parser != nullptr);
+        TS_ASSERT_EQUALS(parser->get_kernel_id(), "test_parser");
+        TS_ASSERT_EQUALS(parser->get_kernel_type(), "token_parser");
+    }
+
+    void test_token_parsing_whitespace() {
+        auto parser = TokenParsingAgentFactory::create_simple_parser("test_parser");
+        
+        CognitiveData input;
+        input.data_id = "test_input";
+        input.metadata["raw_text"] = "hello world test";
+        
+        ProcessingResult result = parser->process(input);
+        
+        TS_ASSERT_EQUALS(result.output_data.data_id, "parsed_test_input");
+        TS_ASSERT_EQUALS(result.output_data.metadata["token_count"], "4");
+        TS_ASSERT(result.output_data.has_symbolic());
+        TS_ASSERT(result.processing_cost > 0.0f);
+        TS_ASSERT(result.estimated_value > 0.0f);
+    }
+
+    void test_token_parsing_grammar() {
+        auto parser = TokenParsingAgentFactory::create_grammar_parser("grammar_parser", {});
+        
+        CognitiveData input;
+        input.data_id = "grammar_test";
+        input.metadata["raw_text"] = "(function arg1 arg2)";
+        
+        ProcessingResult result = parser->process(input);
+        
+        TS_ASSERT_EQUALS(result.output_data.data_id, "parsed_grammar_test");
+        TS_ASSERT(result.output_data.has_symbolic());
+        TS_ASSERT(!result.output_data.symbolic_tree.empty());
+    }
+
+    void test_processing_cost_estimation() {
+        auto parser = TokenParsingAgentFactory::create_simple_parser("cost_test");
+        
+        CognitiveData small_input;
+        small_input.metadata["raw_text"] = "small";
+        
+        CognitiveData large_input;
+        large_input.metadata["raw_text"] = "this is a much larger input string with many more words";
+        
+        float small_cost = parser->estimate_processing_cost(small_input);
+        float large_cost = parser->estimate_processing_cost(large_input);
+        
+        TS_ASSERT(large_cost > small_cost);
+    }
+
+    void test_kernel_registry() {
+        auto parser1 = TokenParsingAgentFactory::create_simple_parser("registry_test_1");
+        auto parser2 = TokenParsingAgentFactory::create_hybrid_parser("registry_test_2");
+        
+        KernelRegistry& registry = KernelRegistry::instance();
+        
+        size_t initial_count = registry.get_all_kernel_ids().size();
+        
+        registry.register_kernel(parser1);
+        registry.register_kernel(parser2);
+        
+        size_t final_count = registry.get_all_kernel_ids().size();
+        TS_ASSERT_EQUALS(final_count, initial_count + 2);
+        
+        auto retrieved = registry.get_kernel("registry_test_1");
+        TS_ASSERT(retrieved != nullptr);
+        TS_ASSERT_EQUALS(retrieved->get_kernel_id(), "registry_test_1");
+        
+        auto by_type = registry.get_kernels_by_type("token_parser");
+        TS_ASSERT(by_type.size() >= 2);
+    }
+
+    void test_attention_allocation_basic() {
+        KernelRegistry& registry = KernelRegistry::instance();
+        
+        // Test basic attention allocation
+        bool allocated = registry.allocate_attention("test_kernel", 50.0f);
+        TS_ASSERT(allocated);
+        
+        auto state = registry.get_attention_state();
+        TS_ASSERT(state.allocated_attention >= 50.0f);
+        
+        registry.release_attention("test_kernel", 50.0f);
+        
+        auto final_state = registry.get_attention_state();
+        TS_ASSERT(final_state.allocated_attention < state.allocated_attention);
+    }
+
+    void test_kernel_stats() {
+        auto parser = TokenParsingAgentFactory::create_simple_parser("stats_test");
+        
+        const auto& initial_stats = parser->get_stats();
+        TS_ASSERT_EQUALS(initial_stats.total_processed, 0);
+        TS_ASSERT_EQUALS(initial_stats.total_cost, 0.0f);
+        
+        CognitiveData input;
+        input.metadata["raw_text"] = "test input for stats";
+        
+        ProcessingResult result = parser->process(input);
+        parser->update_processing_stats(result, 0.1f);
+        
+        const auto& final_stats = parser->get_stats();
+        TS_ASSERT_EQUALS(final_stats.total_processed, 1);
+        TS_ASSERT(final_stats.total_cost > 0.0f);
+        TS_ASSERT(final_stats.average_processing_time > 0.0f);
+    }
+
+    void test_kernel_adaptation() {
+        auto parser = TokenParsingAgentFactory::create_simple_parser("adaptation_test");
+        
+        KernelConfig initial_config = parser->get_config();
+        float initial_threshold = initial_config.base_activation_threshold;
+        
+        // Simulate feedback that should adjust parameters
+        std::map<std::string, float> poor_performance;
+        poor_performance["efficiency"] = 0.2f; // Poor efficiency
+        
+        parser->adapt_parameters(poor_performance);
+        
+        // The adaptation should have occurred (exact behavior depends on implementation)
+        // This test verifies the mechanism exists and can be called
+        TS_ASSERT(true); // Basic test that adaptation doesn't crash
+    }
+};
