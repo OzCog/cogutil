@@ -12,8 +12,22 @@ TARGET_LINK_LIBRARIES(basic_agentic_demo
     ${Boost_LIBRARIES}
 )
 
-# Install demo binary
-INSTALL(TARGETS basic_agentic_demo
+# Cognitive Kernel Genesis Demo
+SET(COGNITIVE_DEMO_SOURCES
+    cognitive_kernel_demo.cc
+)
+
+ADD_EXECUTABLE(cognitive_kernel_demo ${COGNITIVE_DEMO_SOURCES})
+
+TARGET_LINK_LIBRARIES(cognitive_kernel_demo
+    agentic-grammar
+    agentic-kernel
+    cogutil
+    ${Boost_LIBRARIES}
+)
+
+# Install demo binaries
+INSTALL(TARGETS basic_agentic_demo cognitive_kernel_demo
     RUNTIME DESTINATION bin
 )
 
