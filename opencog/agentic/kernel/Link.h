@@ -31,6 +31,11 @@
 #include <memory>
 #include <map>
 #include <set>
+#include <chrono>
+
+// Forward declarations for GGML integration
+struct ggml_context;
+struct ggml_tensor;
 
 namespace opencog { namespace agentic {
 
@@ -47,6 +52,8 @@ namespace opencog { namespace agentic {
  * - Typed relationships with semantic annotations
  * - Attention weights for relevance ranking
  * - Pattern matching and traversal capabilities
+ * - GGML tensor backend for neural-symbolic integration
+ * - Tensor-encoded relationship strengths and attention weights
  */
 class Link {
 public:
@@ -70,6 +77,12 @@ public:
         size_t temporal_order = 0;     // Temporal ordering information
         std::map<std::string, std::string> annotations; // Additional metadata
         bool is_bidirectional = false; // Whether link works in both directions
+        
+        // Tensor-related metadata
+        float tensor_similarity_cache = -1.0f; // Cached tensor similarity result
+        std::chrono::system_clock::time_point created;
+        std::chrono::system_clock::time_point last_accessed;
+        size_t tensor_update_count = 0; // Number of tensor updates
     };
 
 public:
@@ -94,6 +107,18 @@ public:
     void set_attention_weight(float weight) { metadata_.attention_weight = weight; }
     void set_annotation(const std::string& key, const std::string& value);
     std::string get_annotation(const std::string& key) const;
+    
+    // GGML tensor backend operations
+    bool create_tensor_representation(size_t feature_dimension = 64);
+    bool update_tensor_from_metadata();
+    bool sync_metadata_from_tensor();
+    bool has_tensor_representation() const { return tensor_data_ != nullptr; }
+    
+    // Tensor operations for neural-symbolic integration
+    ggml_tensor* get_tensor() const { return tensor_data_; }
+    float calculate_tensor_strength(const std::vector<ggml_tensor*>& node_tensors) const;
+    bool perform_tensor_attention_update(float attention_delta);
+    void encode_relationship_to_tensor();
     
     // Hypergraph operations
     size_t get_arity() const { return connected_nodes_.size(); }
@@ -134,9 +159,24 @@ protected:
     std::vector<std::string> connected_nodes_;
     LinkMetadata metadata_;
     
+    // GGML tensor backend
+    ggml_tensor* tensor_data_ = nullptr;
+    ggml_context* tensor_context_ = nullptr;
+    
+    // Relational features for tensor encoding
+    std::map<std::string, float> relational_features_;
+    
     // Helper methods
     std::string generate_link_id() const;
     void validate_link_structure() const;
+    void initialize_default_features();
+    void cleanup_tensor_resources();
+    
+    // Tensor encoding/decoding
+    void encode_features_to_tensor();
+    void decode_features_from_tensor();
+    std::vector<float> extract_relational_vector() const;
+    void load_relational_vector(const std::vector<float>& features);
 };
 
 }} // namespace opencog::agentic
