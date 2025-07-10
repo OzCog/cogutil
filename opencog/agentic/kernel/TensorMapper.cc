@@ -10,11 +10,11 @@
 #include <algorithm>
 #include <numeric>
 #include <cmath>
+#include <memory>
 
-// GGML headers (if available)
-#ifdef HAVE_GGML
-#include <ggml.h>
-#endif
+// GGML headers
+#include "ggml_stub.h"
+#define HAVE_GGML 1
 
 namespace opencog { namespace agentic {
 
@@ -422,6 +422,26 @@ std::shared_ptr<TensorMapper> TensorMapperFactory::create_hybrid_mapper(const st
     mapping_config.preserve_structure = true;
     mapping_config.optimize_for_ggml = true;
     mapping_config.enable_compression = true;
+    
+    return std::make_shared<TensorMapper>(config, mapping_config);
+}
+
+std::shared_ptr<TensorMapper> TensorMapperFactory::create_semantic_mapper(const std::string& kernel_id) {
+    KernelConfig config(kernel_id, "tensor_mapper");
+    TensorMapper::TensorMappingConfig mapping_config;
+    mapping_config.strategy = TensorMapper::MappingStrategy::SEMANTIC;
+    mapping_config.preserve_structure = false;
+    mapping_config.optimize_for_ggml = true;
+    
+    return std::make_shared<TensorMapper>(config, mapping_config);
+}
+
+std::shared_ptr<TensorMapper> TensorMapperFactory::create_attention_mapper(const std::string& kernel_id) {
+    KernelConfig config(kernel_id, "tensor_mapper");
+    TensorMapper::TensorMappingConfig mapping_config;
+    mapping_config.strategy = TensorMapper::MappingStrategy::ATTENTION_WEIGHTED;
+    mapping_config.attention_threshold = 0.05f; // Lower threshold for attention
+    mapping_config.preserve_structure = true;
     
     return std::make_shared<TensorMapper>(config, mapping_config);
 }

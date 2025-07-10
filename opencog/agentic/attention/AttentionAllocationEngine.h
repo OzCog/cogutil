@@ -14,7 +14,34 @@
 #include <queue>
 #include <chrono>
 
-namespace opencog { namespace agentic { namespace attention {
+// Forward declarations for GGML integration
+struct ggml_context;
+struct ggml_tensor;
+
+/**
+ * GGML-backed attention value that stores importance as tensor operations
+ */
+class GGMLAttentionValue {
+public:
+    GGMLAttentionValue();
+    ~GGMLAttentionValue();
+    
+    void set_importance_values(float sti, float lti, float vlti, float confidence);
+    AttentionValue get_attention_value() const;
+    void apply_decay(float decay_rate, float time_delta);
+    float calculate_total_importance() const;
+    bool is_above_threshold(float threshold) const;
+
+private:
+    ggml_context* tensor_context_ = nullptr;
+    ggml_context* decay_context_ = nullptr;
+    ggml_tensor* tensor_data_ = nullptr;
+    std::chrono::system_clock::time_point last_updated_;
+    
+    void initialize_tensor();
+    void cleanup_tensor();
+    void update_timestamp();
+};
 
 /**
  * Attention Value - represents the economic value and priority of cognitive data
@@ -57,6 +84,8 @@ struct AttentionRequest {
     AttentionValue attention_value;
     std::chrono::system_clock::time_point timestamp;
     
+    AttentionRequest() = default;
+    
     AttentionRequest(const std::string& kid, const CognitiveData& d, float amount)
         : kernel_id(kid), data(d), requested_amount(amount),
           timestamp(std::chrono::system_clock::now()) {
@@ -68,6 +97,15 @@ struct AttentionRequest {
         return attention_value.total_importance() * 
                (estimated_output_value / std::max(estimated_processing_cost, 0.1f)) * 
                time_bonus;
+    }
+    
+    // Comparison operators for priority queue
+    bool operator<(const AttentionRequest& other) const {
+        return priority_score() < other.priority_score();
+    }
+    
+    bool operator>(const AttentionRequest& other) const {
+        return priority_score() > other.priority_score();
     }
 };
 
@@ -95,8 +133,9 @@ public:
     };
 
 public:
-    AttentionAllocationEngine(const AllocationConfig& config = AllocationConfig());
-    ~AttentionAllocationEngine() = default;
+    AttentionAllocationEngine(const AllocationConfig& config);
+    AttentionAllocationEngine(); // Default constructor
+    ~AttentionAllocationEngine();
 
     // Core allocation interface
     bool request_attention(const AttentionRequest& request);
@@ -145,6 +184,10 @@ private:
     std::map<std::string, AttentionRequest> active_allocations_;
     std::map<std::string, AttentionValue> attention_values_;
     
+    // GGML-based attention storage
+    std::map<std::string, std::unique_ptr<class GGMLAttentionValue>> ggml_attention_values_;
+    struct ggml_context* attention_compute_context_ = nullptr;
+    
     mutable std::mutex allocation_mutex_;
     
     // Economic state
@@ -158,8 +201,10 @@ private:
     void update_kernel_performance(const std::string& kernel_id, float efficiency);
     
     // Attention spreading mechanisms
-    void spread_to_related_data(const std::string& data_id, const AttentionValue& source_value);
-    std::vector<std::string> find_related_data(const std::string& data_id) const;
+    // GGML-based attention computation
+    float calculate_allocation_amount_ggml(const AttentionRequest& request) const;
+    void update_attention_value_ggml(const std::string& data_id, const AttentionValue& value);
+    void spread_attention_values_ggml();
     
     // Market dynamics
     void adjust_attention_price(float demand_supply_ratio);

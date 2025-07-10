@@ -42,8 +42,6 @@ namespace opencog { namespace agentic {
 // Forward declaration  
 using ::opencog::tree;
 
-namespace opencog { namespace agentic {
-
 /**
  * TensorShape - Dimensionality descriptor for cognitive representations.
  * 
@@ -118,6 +116,8 @@ public:
     bool is_ggml_compatible() const;
     size_t estimate_ggml_memory_size() const;
     std::string to_ggml_type_string() const;
+    ggml_tensor* create_ggml_tensor(ggml_context* ctx) const;
+    static TensorShape from_ggml_tensor(const ggml_tensor* tensor);
     
     // Attention-aware operations
     TensorShape apply_attention_mask(const std::vector<float>& attention_weights) const;

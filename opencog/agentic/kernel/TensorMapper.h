@@ -38,8 +38,6 @@ namespace opencog { namespace agentic {
 // Forward declarations  
 using ::opencog::tree;
 
-namespace opencog { namespace agentic {
-
 /**
  * TensorMapper - Cognitive object to tensor mapping kernel.
  * 
