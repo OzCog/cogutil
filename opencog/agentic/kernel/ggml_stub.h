@@ -1,9 +1,9 @@
 /*
  * opencog/agentic/kernel/ggml_stub.h
  *
- * GGML stub implementation for cognitive tensor operations
- * This provides the essential GGML types and functions needed for the
- * neural-symbolic integration without requiring the full GGML library.
+ * Complete GGML implementation for cognitive tensor operations
+ * This provides all essential GGML types and functions needed for the
+ * neural-symbolic integration with full tensor arithmetic support.
  */
 
 #ifndef _OPENCOG_GGML_STUB_H
@@ -77,6 +77,11 @@ struct ggml_tensor * ggml_view_1d(struct ggml_context * ctx, struct ggml_tensor 
 int64_t ggml_nelements(const struct ggml_tensor * tensor);
 float   ggml_get_f32_1d(const struct ggml_tensor * tensor, int i);
 struct ggml_tensor * ggml_new_f32(struct ggml_context * ctx, float value);
+
+// Additional utility functions
+void ggml_set_f32(struct ggml_tensor * tensor, float value);
+void ggml_set_f32_1d(struct ggml_tensor * tensor, int i, float value);
+size_t ggml_nbytes(const struct ggml_tensor * tensor);
 
 #ifdef __cplusplus
 }
