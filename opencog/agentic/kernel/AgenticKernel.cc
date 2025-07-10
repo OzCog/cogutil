@@ -13,10 +13,9 @@
 #include <algorithm>
 #include <opencog/util/Logger.h>
 
-// GGML headers (if available)
-#ifdef HAVE_GGML
-#include <ggml.h>
-#endif
+// GGML headers
+#include "ggml_stub.h"
+#define HAVE_GGML 1
 
 namespace opencog { namespace agentic {
 
@@ -25,14 +24,12 @@ namespace opencog { namespace agentic {
 // =====================================================
 
 CognitiveData::~CognitiveData() {
-#ifdef HAVE_GGML
     // Cleanup GGML resources if they exist
     if (tensor_context) {
         ggml_free(tensor_context);
         tensor_context = nullptr;
         tensor_data = nullptr; // tensor_data is freed with context
     }
-#endif
 }
 
 float CognitiveData::get_attention_weight(const std::string& key) const {
@@ -42,6 +39,130 @@ float CognitiveData::get_attention_weight(const std::string& key) const {
 
 void CognitiveData::set_attention_weight(const std::string& key, float weight) {
     attention_weights[key] = weight;
+}
+
+bool CognitiveData::create_tensor_from_symbolic(size_t context_size) {
+    if (symbolic_tree.empty()) {
+        return false;
+    }
+    
+    // Clean up existing tensor if present
+    if (tensor_context) {
+        ggml_free(tensor_context);
+        tensor_context = nullptr;
+        tensor_data = nullptr;
+    }
+    
+    // Initialize GGML context
+    struct ggml_init_params params = {
+        .mem_size   = context_size,
+        .mem_buffer = NULL,
+        .no_alloc   = false,
+    };
+    
+    tensor_context = ggml_init(params);
+    if (!tensor_context) {
+        return false;
+    }
+    
+    // Create tensor based on tree structure
+    int tree_size = symbolic_tree.size();
+    if (tree_size == 0) {
+        return false;
+    }
+    
+    tensor_data = ggml_new_tensor_1d(tensor_context, GGML_TYPE_F32, tree_size);
+    if (!tensor_data) {
+        ggml_free(tensor_context);
+        tensor_context = nullptr;
+        return false;
+    }
+    
+    return update_tensor_from_symbolic();
+}
+
+bool CognitiveData::update_tensor_from_symbolic() {
+    if (!tensor_data || !tensor_context || symbolic_tree.empty()) {
+        return false;
+    }
+    
+    // Fill tensor with encoded tree data
+    float* data = (float*)tensor_data->data;
+    auto it = symbolic_tree.begin();
+    int i = 0;
+    int max_elements = ggml_nelements(tensor_data);
+    
+    for (; i < max_elements && it != symbolic_tree.end(); ++i, ++it) {
+        // Enhanced encoding: combine multiple features
+        size_t str_len = it->length();
+        size_t depth = symbolic_tree.depth(it);
+        size_t siblings = symbolic_tree.number_of_siblings(it);
+        size_t hash_val = std::hash<std::string>{}(*it);
+        
+        // Get attention weight for this node if available
+        float attention = get_attention_weight(*it);
+        
+        // Multi-dimensional encoding in a single float
+        // Format: attention_weight * 10000 + str_len * 100 + depth * 10 + (hash % 10)
+        data[i] = attention * 10000.0f + 
+                  static_cast<float>(str_len % 100) * 100.0f + 
+                  static_cast<float>(depth % 10) * 10.0f + 
+                  static_cast<float>(hash_val % 10);
+    }
+    
+    // Fill remaining slots with padding
+    for (; i < max_elements; ++i) {
+        data[i] = 0.0f;
+    }
+    
+    return true;
+}
+
+bool CognitiveData::sync_symbolic_from_tensor() {
+    if (!tensor_data || !tensor_context) {
+        return false;
+    }
+    
+    const float* data = (const float*)tensor_data->data;
+    int n_elements = ggml_nelements(tensor_data);
+    
+    // Clear existing tree
+    symbolic_tree.clear();
+    
+    if (n_elements > 0) {
+        // Create root
+        symbolic_tree.set_head("tensor_sync_root");
+        auto root = symbolic_tree.begin();
+        
+        // Decode tensor data back to tree structure
+        for (int i = 0; i < n_elements; ++i) {
+            float encoded_val = data[i];
+            
+            // Skip padding zeros
+            if (encoded_val == 0.0f) continue;
+            
+            // Decode the encoding
+            int combined = static_cast<int>(encoded_val);
+            float attention = static_cast<float>(combined / 10000) / 10000.0f;
+            int str_len = (combined % 10000) / 100;
+            int depth = (combined % 100) / 10;
+            int hash_remainder = combined % 10;
+            
+            std::ostringstream node_oss;
+            node_oss << "decoded_node_" << i << "_len" << str_len 
+                     << "_d" << depth << "_h" << hash_remainder;
+            
+            std::string node_str = node_oss.str();
+            symbolic_tree.append_child(root, node_str);
+            
+            // Restore attention weight
+            if (attention > 0.0f) {
+                set_attention_weight(node_str, attention);
+            }
+        }
+    }
+    
+    return true;
 }
 
 // =====================================================
@@ -153,37 +274,39 @@ tree<std::string> AgenticKernel::parse_symbolic_input(const std::string& input) 
 }
 
 ggml_tensor* AgenticKernel::create_tensor_from_tree(const tree<std::string>& tree_data, ggml_context* ctx) const {
-#ifdef HAVE_GGML
     if (!ctx) return nullptr;
     
-    // Simple conversion: create a 1D tensor with tree size
+    // Convert tree to tensor representation
     int tree_size = tree_data.size();
     if (tree_size == 0) return nullptr;
     
+    // Create 1D tensor to hold tree elements
     ggml_tensor* tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, tree_size);
     
-    // Fill tensor with simple encoding (length of strings, positions, etc.)
+    // Fill tensor with encoded tree data
     float* data = (float*)tensor->data;
     auto it = tree_data.begin();
     for (int i = 0; i < tree_size && it != tree_data.end(); ++i, ++it) {
-        data[i] = static_cast<float>(it->length()); // Simple encoding
+        // Enhanced encoding: combine string length, depth, and hash
+        size_t str_len = it->length();
+        size_t depth = tree_data.depth(it);
+        size_t hash_val = std::hash<std::string>{}(*it);
+        
+        // Encode as: (length * 1000 + depth * 100 + hash % 100) / 1000.0
+        data[i] = static_cast<float>(str_len * 1000 + depth * 100 + (hash_val % 100)) / 1000.0f;
     }
     
     return tensor;
-#else
-    return nullptr;
-#endif
 }
 
 tree<std::string> AgenticKernel::extract_tree_from_tensor(const ggml_tensor* tensor) const {
     tree<std::string> result;
     
-#ifdef HAVE_GGML
     if (!tensor || tensor->type != GGML_TYPE_F32) {
         return result;
     }
     
-    // Simple extraction: create nodes based on tensor values
+    // Extract tree structure from tensor data
     const float* data = (const float*)tensor->data;
     int n_elements = ggml_nelements(tensor);
     
@@ -194,12 +317,18 @@ tree<std::string> AgenticKernel::extract_tree_from_tensor(const ggml_tensor* ten
         
         auto root = result.begin();
         for (int i = 0; i < n_elements; ++i) {
+            // Decode the enhanced encoding
+            float encoded_val = data[i];
+            int combined = static_cast<int>(encoded_val * 1000);
+            int str_len = combined / 1000;
+            int depth = (combined % 1000) / 100;
+            int hash_remainder = combined % 100;
+            
             std::ostringstream node_oss;
-            node_oss << "node_" << i << "_" << data[i];
+            node_oss << "node_" << i << "_len" << str_len << "_d" << depth << "_h" << hash_remainder;
             result.append_child(root, node_oss.str());
         }
     }
-#endif
     
     return result;
 }

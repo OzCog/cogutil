@@ -13,10 +13,9 @@
 #include <cmath>
 #include <vector>
 
-// GGML headers (if available)
-#ifdef HAVE_GGML
-#include <ggml.h>
-#endif
+// GGML headers
+#include "ggml_stub.h"
+#define HAVE_GGML 1
 
 namespace opencog { namespace agentic {
 
@@ -205,7 +204,6 @@ bool TensorShape::can_broadcast_to(const TensorShape& target) const {
 }
 
 bool TensorShape::is_ggml_compatible() const {
-#ifdef HAVE_GGML
     // GGML has some limitations on tensor dimensions and types
     if (get_rank() > 4) {
         return false; // GGML typically supports up to 4D tensors
@@ -222,10 +220,19 @@ bool TensorShape::is_ggml_compatible() const {
         }
     }
     
+    // Check if data type is supported by GGML
+    switch (data_type_) {
+        case DataType::FLOAT32:
+        case DataType::FLOAT16:
+        case DataType::INT32:
+        case DataType::INT8:
+            return true;
+        case DataType::BOOLEAN:
+        case DataType::SYMBOLIC:
+            return false; // Not directly supported, needs conversion
+    }
+    
     return true;
-#else
-    return false; // GGML not available
-#endif
 }
 
 size_t TensorShape::estimate_ggml_memory_size() const {
@@ -263,6 +270,96 @@ std::string TensorShape::to_ggml_type_string() const {
         case DataType::INT8: return "GGML_TYPE_I8";
         default: return "GGML_TYPE_F32"; // Default fallback
     }
+}
+
+ggml_tensor* TensorShape::create_ggml_tensor(ggml_context* ctx) const {
+    if (!ctx || !is_ggml_compatible()) {
+        return nullptr;
+    }
+    
+    // Convert DataType to ggml_type
+    ggml_type ggml_data_type;
+    switch (data_type_) {
+        case DataType::FLOAT32: ggml_data_type = GGML_TYPE_F32; break;
+        case DataType::FLOAT16: ggml_data_type = GGML_TYPE_F16; break;
+        case DataType::INT32: ggml_data_type = GGML_TYPE_I32; break;
+        case DataType::INT8: ggml_data_type = GGML_TYPE_I8; break;
+        default: ggml_data_type = GGML_TYPE_F32; break;
+    }
+    
+    // Create tensor based on rank
+    ggml_tensor* tensor = nullptr;
+    switch (get_rank()) {
+        case 0:
+        case 1:
+            tensor = ggml_new_tensor_1d(ctx, ggml_data_type, dimensions_.empty() ? 1 : dimensions_[0]);
+            break;
+        case 2:
+            tensor = ggml_new_tensor_2d(ctx, ggml_data_type, dimensions_[0], dimensions_[1]);
+            break;
+        case 3:
+            tensor = ggml_new_tensor_3d(ctx, ggml_data_type, dimensions_[0], dimensions_[1], dimensions_[2]);
+            break;
+        case 4:
+            tensor = ggml_new_tensor_4d(ctx, ggml_data_type, dimensions_[0], dimensions_[1], dimensions_[2], dimensions_[3]);
+            break;
+        default:
+            // For higher dimensions, fall back to 1D with total elements
+            tensor = ggml_new_tensor_1d(ctx, ggml_data_type, get_total_elements());
+            break;
+    }
+    
+    return tensor;
+}
+
+TensorShape TensorShape::from_ggml_tensor(const ggml_tensor* tensor) {
+    if (!tensor) {
+        return TensorShape();
+    }
+    
+    // Extract dimensions from GGML tensor
+    std::vector<size_t> dims;
+    for (int i = 0; i < GGML_MAX_DIMS; ++i) {
+        if (tensor->ne[i] > 1) {
+            dims.push_back(tensor->ne[i]);
+        }
+    }
+    
+    if (dims.empty()) {
+        dims.push_back(1); // Scalar case
+    }
+    
+    TensorShape shape(dims);
+    
+    // Convert GGML type to DataType
+    switch (tensor->type) {
+        case GGML_TYPE_F32: shape.data_type_ = DataType::FLOAT32; break;
+        case GGML_TYPE_F16: shape.data_type_ = DataType::FLOAT16; break;
+        case GGML_TYPE_I32: shape.data_type_ = DataType::INT32; break;
+        case GGML_TYPE_I8: shape.data_type_ = DataType::INT8; break;
+        default: shape.data_type_ = DataType::FLOAT32; break;
+    }
+    
+    // Infer tensor type from dimensions
+    switch (dims.size()) {
+        case 1:
+            shape.tensor_type_ = (dims[0] == 1) ? TensorType::SCALAR : TensorType::VECTOR;
+            break;
+        case 2:
+            shape.tensor_type_ = TensorType::MATRIX;
+            break;
+        case 3:
+            shape.tensor_type_ = TensorType::TENSOR_3D;
+            break;
+        case 4:
+            shape.tensor_type_ = TensorType::TENSOR_4D;
+            break;
+        default:
+            shape.tensor_type_ = TensorType::HYPERGRAPH;
+            break;
+    }
+    
+    return shape;
 }
 
 std::string TensorShape::to_string() const {
@@ -508,6 +605,118 @@ float TensorShapeAnalyzer::calculate_fragmentation_score(const std::vector<Tenso
     
     float cv = mean > 0 ? std::sqrt(variance) / mean : 0.0f; // Coefficient of variation
     return std::min(cv, 1.0f); // Normalize to [0, 1]
+}
+
+std::vector<TensorShape> TensorShapeAnalyzer::optimize_for_ggml(const std::vector<TensorShape>& shapes) {
+    std::vector<TensorShape> optimized_shapes;
+    
+    for (const auto& shape : shapes) {
+        if (shape.is_ggml_compatible()) {
+            optimized_shapes.push_back(shape);
+        } else {
+            // Optimize shape for GGML compatibility
+            std::vector<size_t> dims = shape.get_dimensions();
+            
+            // Ensure dimensions are not too large
+            for (size_t& dim : dims) {
+                if (dim > 1000000) {
+                    dim = 1000000;
+                }
+            }
+            
+            // Reduce rank if too high
+            while (dims.size() > 4) {
+                // Combine last two dimensions
+                if (dims.size() >= 2) {
+                    size_t last = dims.back();
+                    dims.pop_back();
+                    dims.back() *= last;
+                } else {
+                    break;
+                }
+            }
+            
+            TensorShape optimized(dims, shape.get_tensor_type());
+            optimized.set_data_type(shape.get_data_type());
+            optimized_shapes.push_back(optimized);
+        }
+    }
+    
+    return optimized_shapes;
+}
+
+TensorShape TensorShapeAnalyzer::suggest_optimal_shape(size_t target_elements, TensorShape::TensorType preferred_type) {
+    if (target_elements == 0) {
+        return TensorShape::create_scalar();
+    }
+    
+    if (target_elements == 1) {
+        return TensorShape::create_scalar();
+    }
+    
+    // Find good dimensions that factor nicely
+    std::vector<size_t> dims;
+    
+    switch (preferred_type) {
+        case TensorShape::TensorType::VECTOR:
+            dims = {target_elements};
+            break;
+            
+        case TensorShape::TensorType::MATRIX: {
+            // Find square or near-square dimensions
+            size_t sqrt_approx = static_cast<size_t>(std::sqrt(target_elements));
+            size_t dim1 = sqrt_approx;
+            size_t dim2 = target_elements / dim1;
+            
+            if (dim1 * dim2 != target_elements) {
+                dim2 = target_elements / dim1;
+                if (dim1 * dim2 < target_elements) {
+                    dim2++;
+                }
+            }
+            
+            dims = {dim1, dim2};
+            break;
+        }
+        
+        case TensorShape::TensorType::TENSOR_3D: {
+            // Try to create balanced 3D dimensions
+            size_t cube_root = static_cast<size_t>(std::cbrt(target_elements));
+            dims = {cube_root, cube_root, target_elements / (cube_root * cube_root)};
+            break;
+        }
+        
+        default:
+            // Default to vector
+            dims = {target_elements};
+            break;
+    }
+    
+    TensorShape shape(dims, preferred_type);
+    return shape;
+}
+
+bool TensorShapeAnalyzer::is_memory_efficient_layout(const TensorShape& shape) {
+    // Check if shape is GGML compatible
+    if (!shape.is_ggml_compatible()) {
+        return false;
+    }
+    
+    // Check if dimensions are powers of 2 or multiples of common vector sizes
+    const auto& dims = shape.get_dimensions();
+    for (size_t dim : dims) {
+        // Check if dimension is power of 2, multiple of 32, or other efficient size
+        bool efficient = (dim & (dim - 1)) == 0 ||  // Power of 2
+                        (dim % 32 == 0) ||            // Multiple of 32
+                        (dim % 16 == 0) ||            // Multiple of 16
+                        (dim <= 8);                   // Small dimensions are generally OK
+        
+        if (!efficient) {
+            return false;
+        }
+    }
+    
+    return true;
 }
 
 }} // namespace opencog::agentic

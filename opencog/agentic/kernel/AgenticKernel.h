@@ -70,6 +70,11 @@ struct CognitiveData {
     bool has_symbolic() const { return !symbolic_tree.empty(); }
     float get_attention_weight(const std::string& key) const;
     void set_attention_weight(const std::string& key, float weight);
+    
+    // GGML tensor management
+    bool create_tensor_from_symbolic(size_t context_size = 16 * 1024 * 1024);
+    bool update_tensor_from_symbolic();
+    bool sync_symbolic_from_tensor();
 };
 
 /**
