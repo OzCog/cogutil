@@ -4,6 +4,7 @@ SET(AGENTIC_KERNEL_SOURCES
     TensorShape.cc
     TensorMapper.cc
     Node.cc
+    Link.cc
     ggml_stub.c
 )
 
