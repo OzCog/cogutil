@@ -17,5 +17,8 @@ INSTALL(TARGETS agentic-kernel
 
 INSTALL(FILES 
     AgenticKernel.h
+    TensorShape.h
+    TensorMapper.h
+    Link.h
     DESTINATION include/opencog/agentic/kernel
 )
