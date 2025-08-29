@@ -63,10 +63,20 @@ struct absolute_value_order
 /// minus one.
 inline unsigned int integer_log2(size_t v)
 {
-#ifdef __GNUC__
-    // On x86_64, this uses the BSR (Bit Scan Reverse) insn or
-    // the LZCNT (Leading Zero Count) insn.
-    // This should work on all arches; its part of GIL/gimple.
+#ifdef __x86_64__
+    // Use optimized assembly implementation for x86_64
+    if (v == 0) return 0;
+    
+    unsigned long result;
+    __asm__ volatile (
+        "bsr %1, %0"
+        : "=r" (result)
+        : "rm" (v)
+        : "cc"
+    );
+    return (unsigned int)result;
+#elif defined(__GNUC__)
+    // On other architectures, use builtin which may generate optimized code
     if (0 == v) return 0;
     return (8*sizeof(size_t) - 1) - __builtin_clzl(v);
 #else
@@ -93,7 +103,19 @@ inline unsigned int integer_log2(size_t v)
 inline size_t next_power_of_two(size_t x)
 {
     OC_ASSERT(x > 0);
-#ifdef __GNUC__
+#ifdef __x86_64__
+    // Use optimized implementation for x86_64
+    if (x == 1) return 1;
+    
+    unsigned long bit_pos;
+    __asm__ volatile (
+        "bsr %1, %0"
+        : "=r" (bit_pos)
+        : "rm" (x - 1)
+        : "cc"
+    );
+    return 1UL << (bit_pos + 1);
+#elif defined(__GNUC__)
     if (1==x) return 1;  // because __builtin_clzl(0) is -MAX_INT
     return 1UL << (8*sizeof(size_t) - __builtin_clzl(x-1));
 #else
